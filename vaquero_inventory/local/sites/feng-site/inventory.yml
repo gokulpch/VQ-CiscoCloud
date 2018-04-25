@@ -4,7 +4,7 @@ interfaces:
   - type: physical
     subnet: pxenet
     mac: 52:54:00:f0:a7:47
-    ipv4: 192.168.122.177
+    ipv4: 192.168.122.176
     bmc:
         type: ssh
         username: user
