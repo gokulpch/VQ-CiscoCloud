@@ -1,0 +1,1263 @@
+# kickstart template for Fedora 8 and later.
+# (includes %end blocks)
+# do not use with earlier distros
+
+#platform=x86, AMD64, or Intel EM64T
+# System authorization information
+auth --enableshadow --passalgo=sha512
+# Use text mode install
+text
+# Firewall configuration
+firewall --enabled
+# Run the Setup Agent on first boot
+firstboot --disable
+# System keyboard
+keyboard us
+# System language
+lang en_US
+# Use network installation
+url --url=http://15.0.0.1/iso/RHEL7.4--x86_64/
+# If any cobbler repo definitions were referenced in the kickstart profile, include them here.
+repo --name=cisco-rhel-server-7-openstack-10-plus-hotfix-rpms --baseurl=http://15.0.0.1/repo/cisco-rhel-server-7-openstack-10-plus-hotfix-rpms--x86_64 
+repo --name=mercury-buildnode-rhel7-osp10-rpms --baseurl=http://15.0.0.1/repo/mercury-buildnode-rhel7-osp10-rpms--x86_64 
+repo --name=mercury-cloudpulse-rhel7-osp8-rpms --baseurl=http://15.0.0.1/repo/mercury-cloudpulse-rhel7-osp8-rpms--x86_64 
+repo --name=mercury-common-rhel7-osp10-rpms --baseurl=http://15.0.0.1/repo/mercury-common-rhel7-osp10-rpms--x86_64 
+repo --name=mercury-thirdparty-hw-binary-utilities-rhel7-osp8-rpms --baseurl=http://15.0.0.1/repo/mercury-thirdparty-hw-binary-utilities-rhel7-osp8-rpms--x86_64 
+repo --name=rhel-7-server-extras-rpms --baseurl=http://15.0.0.1/repo/rhel-7-server-extras-rpms--x86_64 
+repo --name=rhel-7-server-openstack-10-devtools-rpms --baseurl=http://15.0.0.1/repo/rhel-7-server-openstack-10-devtools-rpms--x86_64 
+repo --name=rhel-7-server-openstack-10-rpms --baseurl=http://15.0.0.1/repo/rhel-7-server-openstack-10-rpms--x86_64 
+repo --name=rhel-7-server-openstack-10-tools-rpms --baseurl=http://15.0.0.1/repo/rhel-7-server-openstack-10-tools-rpms--x86_64 
+repo --name=rhel-7-server-openstack-9-optools-rpms --baseurl=http://15.0.0.1/repo/rhel-7-server-openstack-9-optools-rpms--x86_64 
+repo --name=rhel-7-server-optional-rpms --baseurl=http://15.0.0.1/repo/rhel-7-server-optional-rpms--x86_64 
+repo --name=rhel-7-server-rh-common-rpms --baseurl=http://15.0.0.1/repo/rhel-7-server-rh-common-rpms--x86_64 
+repo --name=rhel-7-server-rhceph-2-osd-rpms --baseurl=http://15.0.0.1/repo/rhel-7-server-rhceph-2-osd-rpms--x86_64 
+repo --name=rhel-7-server-rpms --baseurl=http://15.0.0.1/repo/rhel-7-server-rpms--x86_64 
+repo --name=rhel-ha-for-rhel-7-server-rpms --baseurl=http://15.0.0.1/repo/rhel-ha-for-rhel-7-server-rpms--x86_64 
+
+# Network information
+network --bootproto=dhcp --device=bootif --hostname=i16-cg-compute-1
+# Reboot after installation
+reboot
+
+# Temporary root password during install for debugging purpose
+sshpw --username=root $6$y4Crv57DpP2B1JEk$RhHFv979m9.nOtRNV1Aco32/v957dreuZHRPxfN40IRrTdQNpdWgVibqY5CWIwCYSJci4U8jReI5dQ.UV8Ioz/ --iscrypted
+# Root password
+rootpw --iscrypted $6$y4Crv57DpP2B1JEk$RhHFv979m9.nOtRNV1Aco32/v957dreuZHRPxfN40IRrTdQNpdWgVibqY5CWIwCYSJci4U8jReI5dQ.UV8Ioz/
+# SELinux configuration
+selinux --enforcing
+# Do not configure the X Window System
+skipx
+# System timezone
+timezone US/Pacific --utc
+# Install OS instead of upgrade
+install
+
+# generated from pre_setup_disks snippet
+%include /tmp/disk-include.clearpart
+%include /tmp/disk-include.boot
+%include /tmp/disk-include.part
+%include /tmp/disk-include.lvm
+
+%pre --erroronfail
+# Temporary root authorized_keys file during install for debugging purpose
+mkdir -p /root/.ssh
+chmod 700 /root/.ssh
+
+curl "http://15.0.0.1/keys/authorized_keys" -o /root/.ssh/authorized_keys
+if [ $? != 0 ]; then
+
+curl "http://15.0.0.1/keys/authorized_keys" -o /root/.ssh/authorized_keys
+fi
+if [ $? != 0 ]; then
+
+curl "http://15.0.0.1/keys/authorized_keys" -o /root/.ssh/authorized_keys
+fi
+
+# Reusable common functions snippet
+
+function run_cmd_with_retries {
+    local cmd=$1
+    local retries=$2
+    local delay=$3
+    for i in $(seq $retries); do
+        eval $cmd && break
+        local rc=$?
+        echo "Running... $cmd" > /dev/tty
+        echo "Attempt #$i return code: $rc" > /dev/tty
+        if [[ $i -lt $retries ]]; then
+            echo "Sleeping $delay seconds before trying again" > /dev/tty
+            sleep $delay
+        else
+            echo "Max attempts reached, exiting" > /dev/tty
+            exit $rc
+        fi
+    done
+}
+
+# Gather hardware info
+dmi_decode="/tmp/dmidecode.out"
+if ! dmidecode 2> /dev/null 1> ${dmi_decode}; then
+    echo "Installer error, cannot continue" > /dev/tty
+    sleep infinity
+fi
+
+# Make sure the hardware is supported
+hw_supported="true"
+chassis_type="unknown"
+# B-series, temporary allowing M3 hardware
+if grep -Eq "Product Name: UCSB-B200-M[34]{1}" ${dmi_decode} 2> /dev/null; then
+    chassis_type="b_series"
+# C-series, temporary allowing M3 hardware
+elif grep -Eq "Product Name: UCSC-C2[024]{2}-M[345]{1}" ${dmi_decode} 2> /dev/null; then
+    chassis_type="c_series"
+    if ! (grep -Eq "UCS VIC [0-9]{4}" ${dmi_decode} 2> /dev/null || \
+            grep -Eq "Cisco.*Ethernet Converged NIC X710-[DA4|DA2|QDA2]{1}" ${dmi_decode} 2> /dev/null || \
+            grep -Eq "Intel.*X710-.*NIC" ${dmi_decode} 2> /dev/null || \
+            grep -q "Intel Network controller" ${dmi_decode} 2> /dev/null); then
+        echo "UCS VIC or Cisco NIC X710 not found" > /dev/tty
+        hw_supported="false"
+    fi
+# HP DL360/380 Gen9
+elif grep -Eq "Product Name: ProLiant DL3[68]{1}0 Gen9" ${dmi_decode} 2> /dev/null; then
+    chassis_type="hp_dl3x0_gen9"
+    if ! (grep -Eq "NIC X710-[DA4|DA2|QDA2]{1}" ${dmi_decode} 2> /dev/null || \
+            grep -q "Intel Network controller" ${dmi_decode} 2> /dev/null || \
+            grep -Eq "HP Ethernet 10Gb .*560" ${dmi_decode} 2> /dev/null); then
+        echo "Intel NIC not found" > /dev/tty
+        hw_supported="false"
+    fi
+else
+    echo "Unsupported chassis" > /dev/tty
+    hw_supported="false"
+fi
+if [[ ${hw_supported} != "true" ]]; then
+    echo "Installer cannot continue, please use supported hardware" > /dev/tty
+    sleep infinity
+fi
+
+# Check for hardware raid and install vendor management tool if exist
+if [[ $chassis_type == "c_series" ]] && lsmod 2> /dev/null | grep -Eqw "^megaraid_sas"; then
+    wget -P /run/install/repo/Packages http://15.0.0.1/repo/mercury-thirdparty-hw-binary-utilities-rhel7-osp8-rpms--x86_64/storcli-1.19.04-1.noarch.rpm
+    if [[ -f /run/install/repo/Packages/storcli-1.19.04-1.noarch.rpm ]]; then
+        rpm -Uvh --nodeps --replacepkgs /run/install/repo/Packages/storcli-1.19.04-1.noarch.rpm
+        echo enable > /tmp/hw_raid
+    fi
+elif [[ $chassis_type == "hp_dl3x0_gen9" ]] && lsmod 2> /dev/null | grep -Eqw "^hpsa"; then
+    wget -P /run/install/repo/Packages http://15.0.0.1/repo/mercury-thirdparty-hw-binary-utilities-rhel7-osp8-rpms--x86_64/ssacli-3.10-3.0.x86_64.rpm
+    if [[ -f /run/install/repo/Packages/ssacli-3.10-3.0.x86_64.rpm ]]; then
+        rpm -Uvh --nodeps --replacepkgs /run/install/repo/Packages/ssacli-3.10-3.0.x86_64.rpm
+        echo enable > /tmp/hw_raid
+    fi
+fi
+
+# Try to update clock before installing to avoid time difference issue later
+# on, especially with brand new system where clock can be completely off.
+if ntpdate -vb 15.0.0.1; then
+    hwclock --utc --systohc
+fi
+
+num_root_drive=0
+root_drive_type=
+set -x
+
+# Common drive functions
+function determine_drive_type_to_use {
+    local num_drive_to_use=$1
+    local hdd_count=$2
+    local ssd_count=$3
+
+    if [[ $num_drive_to_use -eq 0 ]]; then
+        if [[ $ssd_count -gt 0 && $ssd_count -ge $hdd_count ]]; then
+            echo "SSD"
+        elif [[ $hdd_count -gt 0 ]]; then
+            echo "HDD"
+        else
+            echo "Not enough disks found" > /dev/tty
+            sleep infinity
+        fi
+    elif [[ $ssd_count -ge $num_drive_to_use ]]; then
+        echo "SSD"
+    elif [[ $hdd_count -ge $num_drive_to_use ]]; then
+        echo "HDD"
+    else
+        echo "Not enough disks found" > /dev/tty
+        sleep infinity
+    fi
+}
+
+function determine_raid_setup {
+    local total_num_drives=$1
+    local raid_type=""
+    local num_pdperarray=1
+    local num_spares=0
+    # RAID disks configuration:
+    # * RAID 0 for single disk
+    # * RAID 1 for 2 to 3 disks
+    #   - 2 disks in mirror with 3rd disk as spare if available
+    # * RAID 10 for 4 to 24 disks (odd number disk leftover will become
+    #   additional spare)
+    #   - 0 minimal spare disk for 4 to 8 (potentially up to 1 spare)
+    #   - 1 minimal spare disk for 9 to 18 (potentially up to 2 spares)
+    #   - 3 minimal spare disks for 19 to 20 (potentially up to 4 spares)
+    #   - 1 minimal spare disks for 21 to 24 (potentially up to 4 spares)
+    # * Any disks beyond 24 will not be use for RAID
+    if [[ $total_num_drives -gt 24 ]]; then
+        total_num_drives=24
+    fi
+    if [[ $total_num_drives -eq 1 ]]; then
+        raid_type=raid0
+    elif [[ $total_num_drives -le 3 ]]; then
+        raid_type=raid1
+        num_spares=$(($total_num_drives % 2))
+    elif [[ $total_num_drives -le 24 ]]; then
+        raid_type=raid10
+        num_pdperarray=2
+        if [[ $total_num_drives -le 8 ]]; then
+            num_spares=$(($total_num_drives % 2))
+        elif [[ $total_num_drives -le 16 ]]; then
+            num_spares=$((($total_num_drives - 1) % 2 + 1))
+        elif [[ $total_num_drives -le 20 ]]; then
+            num_spares=$(($total_num_drives - 16))
+        elif [[ $total_num_drives -le 24 ]]; then
+            # hardware raid card have a max limitation of 8 VD
+            num_pdperarray=4
+            num_spares=$(($total_num_drives - 20))
+        fi
+    else
+        echo "Error trying to determine RAID configuration with $total_num_drives drives" > /dev/tty
+        sleep infinity
+    fi
+    local num_drives=$(($total_num_drives - $num_spares))
+    echo "$raid_type $num_drives $num_spares $num_pdperarray"
+}
+
+function wipe_file_system {
+    local file_system=$1
+
+    wipefs -af ${file_system}
+    # zero out 4M at the beginning and the end
+    local bs=$((4 * 1024 * 1024))
+    local sz=$(blockdev --getsize64 ${file_system})
+    if [[ ${bs} -gt ${sz} ]]; then
+        dd if=/dev/zero of=${file_system} bs=${sz} count=1 oflag=direct
+    else
+        dd if=/dev/zero of=${file_system} bs=${bs} count=1 oflag=direct
+        dd if=/dev/zero of=${file_system} bs=${bs} count=1 seek=$((${sz} / ${bs} - 1)) oflag=direct
+    fi
+    if ! echo ${file_system} | grep -E "part[0-9]+$"; then
+        # reread partition table after wipe
+        run_cmd_with_retries "blockdev --rereadpt ${disk}" 5 2
+    fi
+}
+
+# Common MegaRAID controller card functions
+function check_megaraid_controller {
+    if lsmod 2> /dev/null | grep -Eqw "^megaraid_sas"; then
+        local raid_controller=$(/opt/MegaRAID/storcli/storcli64 show ctrlcount 2> /dev/null | sed -nre '/Controller Count\s+=\s+[0-9]+/ s/.*([0-9]+)/\1/p')
+        if [[ $raid_controller -ge 1 ]]; then
+            echo "true"
+        fi
+    fi
+}
+
+function delete_megaraid_virtual_drive {
+    local num_raid10=$(/opt/MegaRAID/storcli/storcli64 /c0 /vall show | grep " RAID10 " | wc -l)
+    for idx in $(/opt/MegaRAID/storcli/storcli64 /c0 /vall show | awk '/RAID[0-9]+/ {print $1}' | awk -F '/' '{print $NF}'); do
+        /opt/MegaRAID/storcli/storcli64 /c0 flush
+        run_cmd_with_retries "/opt/MegaRAID/storcli/storcli64 /c0 /v${idx} del force" 5 2
+        udevadm trigger --verbose --type=devices --subsystem-match=scsi_disk && udevadm settle
+    done
+    # NOTE: For some reason, replacing RAID10 with RAID1 causes virtual drive
+    #       to going into "Server Fault" state after installation reboot.
+    #       Workaround by performing extra reboot whenever RAID10 is remove.
+    if [[ $num_raid10 -gt 0 ]]; then
+        reboot
+    fi
+}
+
+function toggle_megaraid_jbod {
+    # $1 is either "on" or "off"
+    local status=$1
+    # $2 is either "SSD", "HDD", or slot # greater than 0
+    local prefer_device=$2
+
+    if [[ $status != "on" && $status != "off" ]]; then
+        echo "Invalid JBOD mode specified: $status" > /dev/tty
+        sleep infinity
+    fi
+    if [[ $status == "on" && ! $prefer_device -gt 0 && $prefer_device != "SSD" && $prefer_device != "HDD" ]]; then
+        echo "Invalid prefer boot drive type or slot # specified: $prefer_device" > /dev/tty
+        sleep infinity
+    fi
+
+    /opt/MegaRAID/storcli/storcli64 /c0 flush
+    if [[ $(/opt/MegaRAID/storcli/storcli64 /c0 show jbod | awk '/^JBOD/ {print tolower($2)}') != ${status} ]]; then
+        /opt/MegaRAID/storcli/storcli64 /c0 set jbod=$status force
+    fi
+    if [[ $status == "on" ]]; then
+        local first_drive="true"
+        local search_order="HDD SSD"
+        if [[ $prefer_device == "SSD" ]]; then
+            local search_order="SSD HDD"
+        fi
+        for pattern in ${search_order}; do
+            for disk in $(/opt/MegaRAID/storcli/storcli64 /c0 /eall /sall show | awk "/${pattern}/ {print \$2,\$1}" | sort -n | awk '{print $2}'); do
+                local enclosure=$(echo $disk | awk -F ':' '{print $1}')
+                local slot=$(echo $disk | awk -F ':' '{print $2}')
+                /opt/MegaRAID/storcli/storcli64 /c0 /e${enclosure} /s${slot} set jbod
+                if [[ $first_drive == "true" ]]; then
+                    /opt/MegaRAID/storcli/storcli64 /c0 /e${enclosure} /s${slot} set bootdrive=on
+                    first_drive="false"
+                fi
+            done
+        done
+    fi
+    if [[ $prefer_device -gt 0 ]]; then
+        /opt/MegaRAID/storcli/storcli64 /c0 /e${enclosure} /s${prefer_device} set bootdrive=on
+    fi
+    udevadm trigger --verbose --type=devices --subsystem-match=scsi_disk && udevadm settle
+}
+
+function create_megaraid_virtual_drive {
+    local num_drive_to_use=$1
+    local drive_type_to_use=$2
+
+    if [[ $drive_type_to_use == "" ]]; then
+        local hdd_count=$(/opt/MegaRAID/storcli/storcli64 /c0 /eall /sall show | awk '/ HDD / {print $1}' | wc -l)
+        local ssd_count=$(/opt/MegaRAID/storcli/storcli64 /c0 /eall /sall show | awk '/ SSD / {print $1}' | wc -l)
+        drive_type_to_use=$(determine_drive_type_to_use $num_drive_to_use $hdd_count $ssd_count)
+    fi
+    local raid_disks=($(/opt/MegaRAID/storcli/storcli64 /c0 /eall /sall show | awk "/ $drive_type_to_use / {print \$1}"))
+    if [[ $num_drive_to_use -gt 0 ]]; then
+        # Use rear drives if exist else default to lowest slot number
+        if [[ $num_drive_to_use -eq 2 && \
+                $(/opt/MegaRAID/storcli/storcli64 /c0 /eall /sall show | grep -E "^[0-9]+:2[56]+ .* $drive_type_to_use " | wc -l) -eq 2 ]]; then
+            raid_disks=(${raid_disks[@]:(-$num_drive_to_use):$num_drive_to_use})
+        elif [[ $num_drive_to_use -le ${#raid_disks[@]} ]]; then
+            raid_disks=(${raid_disks[@]:0:$num_drive_to_use})
+        else
+            echo "Not enough disks found" > /dev/tty
+            sleep infinity
+        fi
+    fi
+    local raid_setup=($(determine_raid_setup ${#raid_disks[@]}))
+    if [[ ${#raid_setup[@]} -ne 4 ]]; then
+        echo "Cannot create hardware RAID virtual drive" > /dev/tty
+        sleep infinity
+    fi
+    /opt/MegaRAID/storcli/storcli64 /c0 flush
+    local raid_type=${raid_setup[0]}
+    local num_drives=${raid_setup[1]}
+    local num_spares=${raid_setup[2]}
+    local num_pdperarray=${raid_setup[3]}
+    # Create drives list and spares list
+    local drives_list=$(IFS=,; echo "${raid_disks[*]:0:$num_drives}")
+    local spares_list=$(IFS=,; echo "${raid_disks[*]:$num_drives:$num_spares}")
+    # Create virtual device
+    local raid_cmd="/opt/MegaRAID/storcli/storcli64 /c0 add vd ${raid_type} drives=${drives_list}"
+    if [[ -n $spares_list ]]; then
+        raid_cmd+=" spares=${spares_list}"
+    fi
+    if [[ $num_pdperarray -gt 1 ]]; then
+        raid_cmd+=" pdperarray=${num_pdperarray}"
+    fi
+    run_cmd_with_retries "$raid_cmd" 5 2
+    /opt/MegaRAID/storcli/storcli64 /c0 /v0 set bootdrive=on
+    /opt/MegaRAID/storcli/storcli64 /c0 /v0 start init force
+    # Wait until init finishes
+    local max_tries=15
+    for i in $(seq ${max_tries}); do
+        sleep 2
+        if /opt/MegaRAID/storcli/storcli64 /c0/v0 show init | grep "Not in progress"; then
+            break
+        fi
+        if [[ ${i} -eq ${max_tries} ]]; then
+            echo "Timeout waiting for hardware RAID virtual drive to finish initialize" > /dev/tty
+            sleep infinity
+        fi
+    done
+    udevadm trigger --verbose --type=devices --subsystem-match=scsi_disk && udevadm settle
+}
+
+function clear_megaraid_foreign_config {
+    if ! /opt/MegaRAID/storcli/storcli64 /c0 /fall show | grep "Couldn't find any foreign Configuration"; then
+        /opt/MegaRAID/storcli/storcli64 /c0 /fall delete
+    fi
+}
+
+# Common HP SmartArray controller card functions
+function check_hpsa_controller {
+    if lsmod 2> /dev/null | grep -Eqw "^hpsa"; then
+        local ctrl_slot=$(/opt/smartstorageadmin/ssacli/bin/ssacli controller all show detail 2> /dev/null | awk '/Slot: [0-9]+/ {print $NF}')
+        if [[ $ctrl_slot != "" ]]; then
+            echo "true"
+        fi
+    fi
+}
+
+function delete_hpsa_logical_drive {
+    /opt/smartstorageadmin/ssacli/bin/ssacli controller slot=0 delete forced
+    udevadm trigger --verbose --type=devices --subsystem-match=scsi_disk && udevadm settle
+}
+
+function toggle_hpsa_hba {
+    # $1 is either "on" or "off"
+    local status=$1
+    if [[ $status != "on" && $status != "off" ]]; then
+        echo "Invalid HBA mode specified: $status" > /dev/tty
+        sleep infinity
+    fi
+
+    # Assume HBA mode on unless otherwise
+    local curr_mode="on"
+    if /opt/smartstorageadmin/ssacli/bin/ssacli controller slot=0 show detail | grep "^ *Controller Mode: *RAID"; then
+        curr_mode="off"
+    fi
+
+    if [[ $status != $curr_mode ]]; then
+        if [[ $status == "on" ]]; then
+            /opt/smartstorageadmin/ssacli/bin/ssacli controller slot=0 delete forced
+        fi
+        /opt/smartstorageadmin/ssacli/bin/ssacli controller slot=0 modify hbamode=${status} forced
+        reboot
+    fi
+}
+
+function create_hpsa_logical_drive {
+    local num_drive_to_use=$1
+    local drive_type_to_use=$2
+
+    if [[ $drive_type_to_use == "" ]]; then
+        local hdd_count=$(/opt/smartstorageadmin/ssacli/bin/ssacli controller slot=0 pd all show | awk '/physicaldrive .* HDD,/ {print $2}' | wc -l)
+        local ssd_count=$(/opt/smartstorageadmin/ssacli/bin/ssacli controller slot=0 pd all show | awk '/physicaldrive .* SSD,/ {print $2}' | wc -l)
+        drive_type_to_use=$(determine_drive_type_to_use $num_drive_to_use $hdd_count $ssd_count)
+    fi
+    local raid_disks=($(/opt/smartstorageadmin/ssacli/bin/ssacli controller slot=0 pd all show | awk "/physicaldrive .* ${drive_type_to_use},/ {print \$2}"))
+    if [[ $num_drive_to_use -gt 0 ]]; then
+        # Use rear drives if exist else default to lowest slot number
+        if [[ $num_drive_to_use -eq 2 && \
+                $(/opt/smartstorageadmin/ssacli/bin/ssacli controller slot=0 pd all show | grep -Ew "physicaldrive [0-9]+I:[0-9]+:2[56]+ .* $drive_type_to_use" | wc -l) -eq 2 ]]; then
+            raid_disks=(${raid_disks[@]:(-$num_drive_to_use):$num_drive_to_use})
+        elif [[ $num_drive_to_use -le ${#raid_disks[@]} ]]; then
+            raid_disks=(${raid_disks[@]:0:$num_drive_to_use})
+        else
+            echo "Not enough disks found" > /dev/tty
+            sleep infinity
+        fi
+    fi
+    local raid_setup=($(determine_raid_setup ${#raid_disks[@]}))
+    if [[ ${#raid_setup[@]} -ne 4 ]]; then
+        echo "Cannot create hardware RAID logical drive" > /dev/tty
+        sleep infinity
+    fi
+    /opt/smartstorageadmin/ssacli/bin/ssacli controller slot=0 delete forced
+    raid_type=${raid_setup[0]}
+    num_drives=${raid_setup[1]}
+    num_spares=${raid_setup[2]}
+    # Create drives list and spares list
+    drives_list=$(IFS=,; echo "${raid_disks[*]:0:$num_drives}")
+    spares_list=$(IFS=,; echo "${raid_disks[*]:$num_drives:$num_spares}")
+    # Update the raid type naming convention
+    if [[ $raid_type == "raid0" ]]; then
+        raid_type="0"
+    elif [[ $raid_type == "raid1" ]]; then
+        raid_type="1"
+    elif [[ $raid_type == "raid10" ]]; then
+        raid_type="1+0"
+    else
+        echo "Invalid RAID type: ${raid_type}" > /dev/tty
+        sleep infinity
+    fi
+    if [[ $raid_type == "0" && $num_drives -eq 1 && $num_spares -eq 0 ]]; then
+        run_cmd_with_retries "/opt/smartstorageadmin/ssacli/bin/ssacli controller slot=0 create type=arrayr0 drives=${drives_list}" 5 2
+    else
+        run_cmd_with_retries "/opt/smartstorageadmin/ssacli/bin/ssacli controller slot=0 create type=ld drives=${drives_list} raid=${raid_type}" 5 2
+        if [[ $spares_list != "" ]]; then
+            run_cmd_with_retries "/opt/smartstorageadmin/ssacli/bin/ssacli controller slot=0 array A add spares=${spares_list} sparetype=autoreplace forced" 5 2
+        fi
+    fi
+    udevadm trigger --verbose --type=devices --subsystem-match=scsi_disk && udevadm settle
+}
+
+# make sure drives are discovered
+run_cmd_with_retries "udevadm trigger && udevadm settle" 5 15
+
+# output for debugging purpose
+ls -l /dev/disk/by-path/*
+
+# remove existing volume groups and their logical volumes
+for vg in $(vgdisplay | grep "VG Name" | awk '{print $3}') ; do
+    vgremove --force ${vg}
+done
+
+# remove existing physical volume
+for pv in $(pvdisplay | grep "PV Name" | awk '{print $3}') ; do
+    pvremove --force ${pv}
+done
+
+# Stop all software RAID arrays with retries in case of error
+for md in $(ls /dev | grep -e 'md[0-9]\+$'); do
+    run_cmd_with_retries "mdadm --stop /dev/${md}" 5 15
+done
+
+# Prepare drives for hardware or software RAID
+for disk in $(ls /dev/disk/by-id/wwn* | sort -r); do
+    wipe_file_system ${disk}
+done
+install_disks=()
+if [[ $(cat /tmp/hw_raid 2> /dev/null) == "enable" ]]; then
+    # If MegaRAID controller exist
+    if [[ $(check_megaraid_controller) == "true" ]]; then
+        clear_megaraid_foreign_config
+        delete_megaraid_virtual_drive
+        toggle_megaraid_jbod "off" $root_drive_type
+        create_megaraid_virtual_drive $num_root_drive $root_drive_type
+
+        # Only use virtual drive attached to MegaRAID controller card for OS
+        for disk in $(ls /dev/disk/by-path/* | egrep "scsi|sas" | egrep -v "part|usb|phy" | sort -V); do
+            install_disks+=($disk)
+        done
+        if [[ ${#install_disks[@]} -ne 1 ]]; then
+            echo "More than one virtual drive found, only one is allowed" > /dev/tty
+            sleep infinity
+        fi
+
+        # Add any remaining unuse drives back as JBOD
+        num_ugood=$(/opt/MegaRAID/storcli/storcli64 /c0 show | grep -E "^[0-9]+:[0-9]+ .*UGood " | wc -l)
+        if [[ $num_ugood -gt 0 ]]; then
+            # NOTE: Internally support c2x0-M3 with 9271-8i storage controller
+            #       card.  Since 9271-8i does not support JBOD mode, setting
+            #       the additional drives to RAID0 instead.
+            if /opt/MegaRAID/storcli/storcli64 /c0 show | grep -w "LSI MegaRAID SAS 9271-8i"; then
+                /opt/MegaRAID/storcli/storcli64 /c0 add vd each r0
+                num_vd=0
+                count=0
+                while [[ $num_ugood -gt $num_vd && $count -lt 30 ]]; do
+                    sleep 2
+                    # Ignore the first VD and only count the rest with RAID0
+                    num_vd=$(/opt/MegaRAID/storcli/storcli64 /c0 /vall show | grep -Ev "^0/0 " | grep -E "^[0-9]+/[0-9]+ .*RAID0 " | wc -l)
+                    (( count++ ))
+                done
+            else
+                /opt/MegaRAID/storcli/storcli64 /c0 set jbod=on
+                num_jbod=0
+                count=0
+                while [[ $num_ugood -gt $num_jbod && $count -lt 30 ]]; do
+                    sleep 2
+                    num_jbod=$(/opt/MegaRAID/storcli/storcli64 /c0 show | grep -E "^[0-9]+:[0-9]+ .*JBOD " | wc -l)
+                    (( count++ ))
+                done
+            fi
+            udevadm trigger --verbose --type=devices --subsystem-match=scsi_disk && udevadm settle
+            for drive in $(ls /dev/disk/by-path/* | grep -v "usb" | grep -E "pci-.*-scsi-" | sort -r); do
+                wipe_file_system $drive
+            done
+        fi
+    # If HP SmartArray controller exist
+    elif [[ $(check_hpsa_controller) == "true" ]]; then
+        delete_hpsa_logical_drive
+        toggle_hpsa_hba "off"
+        create_hpsa_logical_drive $num_root_drive $root_drive_type
+
+        # Only use logical drive attached to HP SmartArray controller card for OS
+        for disk in $(ls /dev/disk/by-path/* | egrep "scsi|sas" | egrep -v "part|usb|phy" | sort -V); do
+            install_disks+=($disk)
+        done
+        if [[ ${#install_disks[@]} -ne 1 ]]; then
+            echo "More than one logical drive found, only one is allowed" > /dev/tty
+            sleep infinity
+        fi
+
+        # Add any remaining unuse drives back as individual RAID0 logical drives
+        /opt/smartstorageadmin/ssacli/bin/ssacli controller slot=0 create type=arrayr0 drives=allunassigned
+    else
+        echo "No hardware RAID controller found" > /dev/tty
+        sleep infinity
+    fi
+else
+    # MegaRAID controller card
+    if [[ $(check_megaraid_controller) == "true" ]]; then
+        clear_megaraid_foreign_config
+        delete_megaraid_virtual_drive
+        toggle_megaraid_jbod "on" "SSD"
+    fi
+
+    # HP SmartArray controller card
+    if [[ $(check_hpsa_controller) == "true" ]]; then
+        toggle_hpsa_hba "on"
+    fi
+
+    include_disk_pattern="scsi|sas"
+    exclude_disk_pattern="part|usb|phy"
+    # If no MegaRAID card and only SAS pass-through card found
+    if [[ $(check_megaraid_controller) != "true" ]] && ls /dev/disk/by-path/* | grep -E "sas-.*-phy[0-9]+"; then
+        include_disk_pattern="sas-.*-phy[0-9]+"
+        exclude_disk_pattern="part|usb"
+    fi
+    hdd_disks=()
+    ssd_disks=()
+    for disk in $(ls /dev/disk/by-path/* | egrep "$include_disk_pattern" | egrep -v "$exclude_disk_pattern" | sort -V); do
+        if [[ $(lsblk -Sbno ROTA $disk) -eq 1 ]]; then
+            hdd_disks+=($disk)
+        elif [[ $(lsblk -Sbno ROTA $disk) -eq 0 ]]; then
+            ssd_disks+=($disk)
+        fi
+    done
+    if [[ $root_drive_type == "HDD" ]]; then
+        install_disks=(${hdd_disks[@]})
+    elif [[ $root_drive_type == "SSD" ]]; then
+        install_disks=(${ssd_disks[@]})
+    elif [[ $root_drive_type == "" ]]; then
+        install_disks=(${ssd_disks[@]})
+        if [[ $(determine_drive_type_to_use $num_root_drive ${#hdd_disks[@]} ${#ssd_disks[@]}) == "HDD" ]]; then
+            install_disks=(${hdd_disks[@]})
+            if [[ $(check_megaraid_controller) == "true" ]]; then
+                toggle_megaraid_jbod "on" "HDD"
+            fi
+        fi
+    fi
+    if [[ $num_root_drive -gt 0 ]]; then
+        install_disks=(${install_disks[@]:0:$num_root_drive})
+    fi
+fi
+
+# Wipeout partition table of all physical disks and FlexFlash
+physical_disks=$(ls -l /dev/disk/by-id/* | awk '!/\/lvm-|\/wwn-|\/usb-/ && /[hsv]d[a-z]+[0-9]*$/ {print $(NF-2)}' | sort -rn)
+if ls /dev/disk/by-id/* | grep -E "usb-(CiscoVD|HV)_Hypervisor"; then
+    physical_disks+=" $(ls /dev/disk/by-id/* | grep -E '\/usb-(CiscoVD|HV)_Hypervisor')"
+fi
+cdisks=""
+for disk in ${physical_disks}; do
+    wipe_file_system ${disk}
+    if ! echo ${disk} | grep -E "part[0-9]+$" && ! echo ${cdisks} | grep "${disk}"; then
+        cdisks+="${disk},"
+    fi
+done
+cdisks=${cdisks:0:-1}
+
+# Write clearpart command to clean partitions on non-removable drives only
+clearpart_file="/tmp/disk-include.clearpart"
+cat > $clearpart_file <<CLEARPART
+clearpart --all --initlabel --drives=${cdisks}
+zerombr
+CLEARPART
+# logging for post install debug purpose
+cat $clearpart_file
+
+if [[ ! ${#install_disks[@]} -gt 0 ]]; then
+    echo "No installation disks found" > /dev/tty
+    sleep infinity
+fi
+# Bootloader
+gpt_flag="false"
+if grep "inst.gpt" /proc/cmdline || [[ -e /sys/firmware/efi ]]; then
+    gpt_flag="true"
+else
+    for disk in ${install_disks[*]}; do
+        if [[ $(($(lsblk -Sbno SIZE $disk) / 1000000000)) -gt 2100 ]]; then
+            gpt_flag="true"
+            break
+        fi
+    done
+fi
+drive_order=$(IFS=,; echo "${install_disks[*]}")
+boot_file=/tmp/disk-include.boot
+> ${boot_file}
+echo "bootloader --append='crashkernel=auto audit=1' --boot-drive=${install_disks[0]} --driveorder=${drive_order}" >> ${boot_file}
+if [[ $gpt_flag == "true" ]]; then
+    for disk in ${install_disks[*]}; do
+        echo "part biosboot --fstype=biosboot --size=1 --ondisk=${disk}" >> ${boot_file}
+    done
+fi
+# NOTE: For now keeping similar disks configuration as before with FlexFlash
+#       setup and change to only support RAID 0/1/10 due to the hardware RAID
+#       specified in the BOM does not include add-on for RAID 5/6.  This should
+#       be revisit again later to optimize the RAID type and partition setup.
+boot_size=${boot_size:-4096}
+pv_size=${pv_size:-'--size=1 --grow'}
+root_size=${root_size:-51200}
+home_size=${home_size:-2048}
+swap_size=${swap_size:-2048}
+pool_size=${pool_size:-32768}
+meta_size=${meta_size:-64}
+tmp_size=${tmp_size:-5120}
+var_log_size=${var_log_size:-102400}
+var_log_audit_size=${var_log_audit_size:-1024}
+var_tmp_size=${var_tmp_size:-5120}
+
+part_file="/tmp/disk-include.part"
+> ${part_file}
+if [[ ${#install_disks[@]} -eq 1 ]]; then
+    echo "part /boot --size=${boot_size} --fstype=ext4 --ondisk=${install_disks[0]} --fsoptions='nodev,noexec,nosuid'" >> ${part_file}
+    echo "part pv.01 ${pv_size} --ondisk=${install_disks[0]}" >> ${part_file}
+else
+    # Determine software raid setup
+    raid_setup=($(determine_raid_setup ${#install_disks[@]}))
+    if [[ ${#raid_setup[@]} -ne 4 ]]; then
+        echo "Cannot create software RAID virtual drive" > /dev/tty
+        sleep infinity
+    fi
+    raid_type=${raid_setup[0]}
+    num_drives=${raid_setup[1]}
+    num_spares=${raid_setup[2]}
+    num_pdperarray=${raid_setup[3]}
+    # Setup raid partition
+    raid_boot=()
+    raid_pv01=()
+    idx=1
+    for disk in ${install_disks[*]}; do
+        echo "part raid.boot.${idx} --size=${boot_size} --ondisk=${disk}" >> ${part_file}
+        echo "part raid.pv01.${idx} ${pv_size} --ondisk=${disk}" >> ${part_file}
+        raid_boot+=("raid.boot.${idx}")
+        raid_pv01+=("raid.pv01.${idx}")
+        (( idx++ ))
+    done
+    # NOTE: CSCvf04750 - Install time increased significantly in Newton after
+    #       upgrade, temporary drop software RAID resync speed to a low value
+    #       to ensure install finish in time.
+    sysctl -w dev.raid.speed_limit_max=2000
+    sysctl -w dev.raid.speed_limit_min=20
+    # Create raid virtual drive
+    # NOTE: raid1 for the boot partition to workaround the max 16 drives
+    #       limitation with BIOS
+    echo "raid /boot --level=raid1 --device=boot --fstype=ext4 ${raid_boot[*]} --fsoptions='nodev,noexec,nosuid'" >> ${part_file}
+    echo "raid pv.01 --level=${raid_type} --device=pv01 --spares=${num_spares} ${raid_pv01[*]}" >> ${part_file}
+fi
+
+vg_name="$(hostname -s)_vg_root"
+lvm_file="/tmp/disk-include.lvm"
+cat > $lvm_file <<LVM
+volgroup ${vg_name} pv.01
+logvol /     --vgname=${vg_name} --size=${root_size} --name=lv_root
+logvol /home --vgname=${vg_name} --size=${home_size} --name=lv_home --fsoptions="nodev"
+logvol none  --vgname=${vg_name} --size=${pool_size} --name=docker-pool --thinpool --metadatasize=${meta_size}
+logvol swap  --vgname=${vg_name} --size=${swap_size} --name=lv_swap
+logvol /tmp  --vgname=${vg_name} --size=${tmp_size} --name=lv_tmp --fsoptions="nodev,noexec,nosuid"
+logvol /var  --vgname=${vg_name} --percent=90 --name=lv_var --fsoptions="nodev,prjquota"
+logvol /var/log --vgname=${vg_name} --size=${var_log_size} --name=lv_var_log --fsoptions="nodev,noexec,nosuid"
+logvol /var/log/audit --vgname=${vg_name} --size=${var_log_audit_size} --name=lv_var_log_audit --fsoptions="nodev,noexec,nosuid"
+logvol /var/tmp --vgname=${vg_name} --size=${var_tmp_size} --name=lv_var_tmp --fsoptions="nodev,noexec,nosuid"
+LVM
+# logging for post install debug purpose
+cat $lvm_file
+
+# enable loose mode rp filtering
+for a in /proc/sys/net/ipv4/conf/*/rp_filter ; do
+  echo 2 > ${a}
+done
+
+set -x -v
+exec 1>/tmp/ks-pre.log 2>&1
+
+# Once root's homedir is there, copy over the log.
+while : ; do
+    sleep 10
+    if [ -d /mnt/sysimage/root ]; then
+        cp /tmp/ks-pre.log /mnt/sysimage/root/
+        logger "Copied %pre section log to system"
+        break
+    fi
+done &
+
+
+curl "http://15.0.0.1/cblr/svc/op/trig/mode/pre/system/i16-cg-compute-1" -o /dev/null
+# Enable installation monitoring
+
+%end
+
+%packages
+bridge-utils
+mcelog
+pciutils
+sos
+storcli
+teamd
+-NetworkManager*
+-NetworkManager-config-server
+
+
+
+%end
+
+%post --nochroot
+set -x -v
+exec 1>/mnt/sysimage/root/ks-post-nochroot.log 2>&1
+
+# Create /etc/sysconfig/docker-storage with LVM info
+pool_name=$(ls /dev/mapper/* | grep -E "\-docker-+pool$")
+echo "DOCKER_STORAGE_OPTIONS=--storage-driver devicemapper --storage-opt dm.fs=xfs --storage-opt dm.thinpooldev=${pool_name} --storage-opt dm.use_deferred_removal=true" > /mnt/sysimage/etc/sysconfig/docker-storage
+
+FSTAB=/mnt/sysimage/etc/fstab
+FS_OPTS=nodev,noexec,nosuid
+if grep ' \/dev\/shm ' ${FSTAB}; then
+    MNT_OPTS=$(grep " \/dev\/shm " ${FSTAB} | awk '{print $4}')
+    sed -i "s/\( \/dev\/shm.*${MNT_OPTS}\)/\1,${FS_OPTS}/" ${FSTAB}
+else
+    echo "tmpfs /dev/shm tmpfs ${FS_OPTS} 0 0" >> ${FSTAB}
+fi
+
+AUDITRULES=/mnt/sysimage/etc/audit/rules.d/audit.rules
+if ! grep -Eo '^ *-e +2 *$' ${AUDITRULES}; then
+    echo "## Force audit to be put in immutable mode" >> ${AUDITRULES}
+    echo "-e 2" >> ${AUDITRULES}
+fi
+
+CISBLACKLIST=/mnt/sysimage/etc/modprobe.d/CIS-blacklist.conf
+echo "install cramfs /bin/true" >> ${CISBLACKLIST}
+echo "install dccp /bin/true" >> ${CISBLACKLIST}
+echo "install sctp /bin/true" >> ${CISBLACKLIST}
+echo "install squashfs /bin/true" >> ${CISBLACKLIST}
+
+# Create ifup-local to send gratuitous arps on interface up
+cat > /mnt/sysimage/sbin/ifup-local << IFUP
+#!/bin/sh
+if [[ \${1} != "" && \${1} != "lo" ]]; then
+    # Derive IP address from interface
+    for IP in \$(ip addr show dev \${1} | grep 'inet ' | awk '{print \$2}' | sed 's_/.*__'); do
+        # Send gratuitous arps out of interface for my IP for 2min
+        arping -w 120 -U -I \${1} \${IP} &
+    done
+fi
+IFUP
+chmod 755 /mnt/sysimage/sbin/ifup-local
+
+%end
+
+%post
+set -x -v
+exec 1>/root/ks-post.log 2>&1
+
+# Start yum configuration
+
+# End yum configuration
+# Start post install kernel options update
+if [ -f /etc/default/grub ]; then
+  TMP_GRUB=$(gawk 'match($0,/^GRUB_CMDLINE_LINUX="([^"]+)"/,a) {printf("%s\n",a[1])}' /etc/default/grub)
+  sed -i '/^GRUB_CMDLINE_LINUX=/d' /etc/default/grub
+  echo "GRUB_CMDLINE_LINUX=\"$TMP_GRUB pci-stub.ids=1137:0071,8086:10ed,8086:154c rcu_nocbs=1,2,3,4,5,6,7,9,10,11,12,13,14,15,17,18,19,20,21,22,23,25,26,27,28,29,30,31 console=ttyS0,115200n8 console=tty0 iommu=pt default_hugepagesz=2M intel_iommu=on nmi_watchdog=0 \"" >> /etc/default/grub
+  grub2-mkconfig -o /boot/grub2/grub.cfg
+else
+  /sbin/grubby --update-kernel=$(/sbin/grubby --default-kernel) --args="pci-stub.ids=1137:0071,8086:10ed,8086:154c rcu_nocbs=1,2,3,4,5,6,7,9,10,11,12,13,14,15,17,18,19,20,21,22,23,25,26,27,28,29,30,31 console=ttyS0,115200n8 console=tty0 iommu=pt default_hugepagesz=2M intel_iommu=on nmi_watchdog=0 "
+fi
+# End post install kernel options update
+
+
+
+# Start post_install_network_config generated code
+
+# we have bonded interfaces, so set max_bonds
+if [ -f "/etc/modprobe.conf" ]; then
+    echo "options bonding max_bonds=4" >> /etc/modprobe.conf
+fi
+
+# create a working directory for interface scripts
+mkdir /etc/sysconfig/network-scripts/cobbler
+cp /etc/sysconfig/network-scripts/ifcfg-lo /etc/sysconfig/network-scripts/cobbler/
+
+# set the gateway in the network configuration file
+grep -v GATEWAY /etc/sysconfig/network > /etc/sysconfig/network.cobbler
+echo "GATEWAY=7.7.7.1" >> /etc/sysconfig/network.cobbler
+rm -f /etc/sysconfig/network
+mv /etc/sysconfig/network.cobbler /etc/sysconfig/network
+
+# set the hostname in the network configuration file
+grep -v HOSTNAME /etc/sysconfig/network > /etc/sysconfig/network.cobbler
+echo "HOSTNAME=i16-cg-compute-1" >> /etc/sysconfig/network.cobbler
+rm -f /etc/sysconfig/network
+mv /etc/sysconfig/network.cobbler /etc/sysconfig/network
+
+# Also set the hostname now, some applications require it
+# (e.g.: if we're connecting to Puppet before a reboot).
+/bin/hostname i16-cg-compute-1
+
+# Start configuration for eth0
+echo "DEVICE=eth0" > /etc/sysconfig/network-scripts/cobbler/ifcfg-eth0
+echo "ONBOOT=yes" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-eth0
+echo "NM_CONTROLLED=no" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-eth0
+echo "HWADDR=F8:72:EA:ED:C4:4E" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-eth0
+IFNAME=$(ip -o link | grep -i 'F8:72:EA:ED:C4:4E' | sed -e 's/^[0-9]*: //' -e 's/:.*//')
+if [ -f "/etc/modprobe.conf" ] && [ $IFNAME ]; then
+    grep $IFNAME /etc/modprobe.conf | sed "s/$IFNAME/eth0/" >> /etc/modprobe.conf.cobbler
+    grep -v $IFNAME /etc/modprobe.conf >> /etc/modprobe.conf.new
+    rm -f /etc/modprobe.conf
+    mv /etc/modprobe.conf.new /etc/modprobe.conf
+fi
+if [ $IFNAME ] && [ -f "/etc/sysconfig/network-scripts/ifcfg-$IFNAME" ]; then
+    rm -f /etc/sysconfig/network-scripts/ifcfg-$IFNAME
+fi
+echo "SLAVE=yes" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-eth0
+echo "MASTER=bond_lacp" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-eth0
+echo "HOTPLUG=no" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-eth0
+echo "TYPE=Ethernet" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-eth0
+echo "BOOTPROTO=none" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-eth0
+echo "MTU=1500" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-eth0
+# End configuration for eth0
+
+# Start configuration for p0
+echo "DEVICE=p0" > /etc/sysconfig/network-scripts/cobbler/ifcfg-p0
+echo "ONBOOT=yes" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p0
+echo "NM_CONTROLLED=no" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p0
+echo "HWADDR=F8:72:EA:ED:C4:54" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p0
+IFNAME=$(ip -o link | grep -i 'F8:72:EA:ED:C4:54' | sed -e 's/^[0-9]*: //' -e 's/:.*//')
+if [ -f "/etc/modprobe.conf" ] && [ $IFNAME ]; then
+    grep $IFNAME /etc/modprobe.conf | sed "s/$IFNAME/p0/" >> /etc/modprobe.conf.cobbler
+    grep -v $IFNAME /etc/modprobe.conf >> /etc/modprobe.conf.new
+    rm -f /etc/modprobe.conf
+    mv /etc/modprobe.conf.new /etc/modprobe.conf
+fi
+if [ $IFNAME ] && [ -f "/etc/sysconfig/network-scripts/ifcfg-$IFNAME" ]; then
+    rm -f /etc/sysconfig/network-scripts/ifcfg-$IFNAME
+fi
+echo "SLAVE=yes" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p0
+echo "MASTER=p" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p0
+echo "HOTPLUG=no" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p0
+echo "TYPE=Ethernet" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p0
+echo "BOOTPROTO=none" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p0
+echo "MTU=1500" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p0
+# End configuration for p0
+
+# Start configuration for p1
+echo "DEVICE=p1" > /etc/sysconfig/network-scripts/cobbler/ifcfg-p1
+echo "ONBOOT=yes" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p1
+echo "NM_CONTROLLED=no" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p1
+echo "HWADDR=F8:72:EA:ED:C4:55" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p1
+IFNAME=$(ip -o link | grep -i 'F8:72:EA:ED:C4:55' | sed -e 's/^[0-9]*: //' -e 's/:.*//')
+if [ -f "/etc/modprobe.conf" ] && [ $IFNAME ]; then
+    grep $IFNAME /etc/modprobe.conf | sed "s/$IFNAME/p1/" >> /etc/modprobe.conf.cobbler
+    grep -v $IFNAME /etc/modprobe.conf >> /etc/modprobe.conf.new
+    rm -f /etc/modprobe.conf
+    mv /etc/modprobe.conf.new /etc/modprobe.conf
+fi
+if [ $IFNAME ] && [ -f "/etc/sysconfig/network-scripts/ifcfg-$IFNAME" ]; then
+    rm -f /etc/sysconfig/network-scripts/ifcfg-$IFNAME
+fi
+echo "SLAVE=yes" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p1
+echo "MASTER=p" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p1
+echo "HOTPLUG=no" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p1
+echo "TYPE=Ethernet" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p1
+echo "BOOTPROTO=none" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p1
+echo "MTU=1500" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p1
+# End configuration for p1
+
+# Start configuration for t0
+echo "DEVICE=t0" > /etc/sysconfig/network-scripts/cobbler/ifcfg-t0
+echo "ONBOOT=yes" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t0
+echo "NM_CONTROLLED=no" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t0
+echo "HWADDR=F8:72:EA:ED:C4:56" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t0
+IFNAME=$(ip -o link | grep -i 'F8:72:EA:ED:C4:56' | sed -e 's/^[0-9]*: //' -e 's/:.*//')
+if [ -f "/etc/modprobe.conf" ] && [ $IFNAME ]; then
+    grep $IFNAME /etc/modprobe.conf | sed "s/$IFNAME/t0/" >> /etc/modprobe.conf.cobbler
+    grep -v $IFNAME /etc/modprobe.conf >> /etc/modprobe.conf.new
+    rm -f /etc/modprobe.conf
+    mv /etc/modprobe.conf.new /etc/modprobe.conf
+fi
+if [ $IFNAME ] && [ -f "/etc/sysconfig/network-scripts/ifcfg-$IFNAME" ]; then
+    rm -f /etc/sysconfig/network-scripts/ifcfg-$IFNAME
+fi
+echo "SLAVE=yes" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t0
+echo "MASTER=t" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t0
+echo "HOTPLUG=no" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t0
+echo "TYPE=Ethernet" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t0
+echo "BOOTPROTO=none" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t0
+echo "MTU=1500" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t0
+# End configuration for t0
+
+# Start configuration for t1
+echo "DEVICE=t1" > /etc/sysconfig/network-scripts/cobbler/ifcfg-t1
+echo "ONBOOT=yes" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t1
+echo "NM_CONTROLLED=no" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t1
+echo "HWADDR=F8:72:EA:ED:C4:57" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t1
+IFNAME=$(ip -o link | grep -i 'F8:72:EA:ED:C4:57' | sed -e 's/^[0-9]*: //' -e 's/:.*//')
+if [ -f "/etc/modprobe.conf" ] && [ $IFNAME ]; then
+    grep $IFNAME /etc/modprobe.conf | sed "s/$IFNAME/t1/" >> /etc/modprobe.conf.cobbler
+    grep -v $IFNAME /etc/modprobe.conf >> /etc/modprobe.conf.new
+    rm -f /etc/modprobe.conf
+    mv /etc/modprobe.conf.new /etc/modprobe.conf
+fi
+if [ $IFNAME ] && [ -f "/etc/sysconfig/network-scripts/ifcfg-$IFNAME" ]; then
+    rm -f /etc/sysconfig/network-scripts/ifcfg-$IFNAME
+fi
+echo "SLAVE=yes" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t1
+echo "MASTER=t" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t1
+echo "HOTPLUG=no" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t1
+echo "TYPE=Ethernet" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t1
+echo "BOOTPROTO=none" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t1
+echo "MTU=1500" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t1
+# End configuration for t1
+
+# Start configuration for p
+echo "DEVICE=p" > /etc/sysconfig/network-scripts/cobbler/ifcfg-p
+echo "ONBOOT=yes" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p
+echo "NM_CONTROLLED=no" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p
+if [ -f "/etc/modprobe.conf" ]; then
+    echo "alias p bonding" >> /etc/modprobe.conf.cobbler
+fi
+cat >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p << EOF
+BONDING_OPTS="mode=balance-xor miimon=50 xmit_hash_policy=1 updelay=0 downdelay=0"
+EOF
+echo "TYPE=Ethernet" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p
+echo "BOOTPROTO=none" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p
+echo "MTU=1500" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p
+echo "DNS1=172.29.74.154" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-p
+# End configuration for p
+
+# Start configuration for mx0
+echo "DEVICE=mx0" > /etc/sysconfig/network-scripts/cobbler/ifcfg-mx0
+echo "ONBOOT=yes" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx0
+echo "NM_CONTROLLED=no" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx0
+echo "HWADDR=F8:72:EA:ED:C4:52" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx0
+IFNAME=$(ip -o link | grep -i 'F8:72:EA:ED:C4:52' | sed -e 's/^[0-9]*: //' -e 's/:.*//')
+if [ -f "/etc/modprobe.conf" ] && [ $IFNAME ]; then
+    grep $IFNAME /etc/modprobe.conf | sed "s/$IFNAME/mx0/" >> /etc/modprobe.conf.cobbler
+    grep -v $IFNAME /etc/modprobe.conf >> /etc/modprobe.conf.new
+    rm -f /etc/modprobe.conf
+    mv /etc/modprobe.conf.new /etc/modprobe.conf
+fi
+if [ $IFNAME ] && [ -f "/etc/sysconfig/network-scripts/ifcfg-$IFNAME" ]; then
+    rm -f /etc/sysconfig/network-scripts/ifcfg-$IFNAME
+fi
+echo "SLAVE=yes" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx0
+echo "MASTER=mx" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx0
+echo "HOTPLUG=no" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx0
+echo "TYPE=Ethernet" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx0
+echo "BOOTPROTO=none" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx0
+echo "MTU=1500" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx0
+# End configuration for mx0
+
+# Start configuration for bond_lacp
+echo "DEVICE=bond_lacp" > /etc/sysconfig/network-scripts/cobbler/ifcfg-bond_lacp
+echo "ONBOOT=yes" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-bond_lacp
+echo "NM_CONTROLLED=no" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-bond_lacp
+if [ -f "/etc/modprobe.conf" ]; then
+    echo "alias bond_lacp bonding" >> /etc/modprobe.conf.cobbler
+fi
+cat >> /etc/sysconfig/network-scripts/cobbler/ifcfg-bond_lacp << EOF
+BONDING_OPTS="mode=802.3ad miimon=50 xmit_hash_policy=1 updelay=0 downdelay=0 lacp_rate=0"
+EOF
+echo "TYPE=Ethernet" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-bond_lacp
+echo "BOOTPROTO=none" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-bond_lacp
+echo "MTU=1500" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-bond_lacp
+echo "DNS1=172.29.74.154" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-bond_lacp
+# End configuration for bond_lacp
+
+# Start configuration for mx1
+echo "DEVICE=mx1" > /etc/sysconfig/network-scripts/cobbler/ifcfg-mx1
+echo "ONBOOT=yes" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx1
+echo "NM_CONTROLLED=no" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx1
+echo "HWADDR=F8:72:EA:ED:C4:53" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx1
+IFNAME=$(ip -o link | grep -i 'F8:72:EA:ED:C4:53' | sed -e 's/^[0-9]*: //' -e 's/:.*//')
+if [ -f "/etc/modprobe.conf" ] && [ $IFNAME ]; then
+    grep $IFNAME /etc/modprobe.conf | sed "s/$IFNAME/mx1/" >> /etc/modprobe.conf.cobbler
+    grep -v $IFNAME /etc/modprobe.conf >> /etc/modprobe.conf.new
+    rm -f /etc/modprobe.conf
+    mv /etc/modprobe.conf.new /etc/modprobe.conf
+fi
+if [ $IFNAME ] && [ -f "/etc/sysconfig/network-scripts/ifcfg-$IFNAME" ]; then
+    rm -f /etc/sysconfig/network-scripts/ifcfg-$IFNAME
+fi
+echo "SLAVE=yes" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx1
+echo "MASTER=mx" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx1
+echo "HOTPLUG=no" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx1
+echo "TYPE=Ethernet" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx1
+echo "BOOTPROTO=none" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx1
+echo "MTU=1500" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx1
+# End configuration for mx1
+
+# Start configuration for mx
+echo "DEVICE=mx" > /etc/sysconfig/network-scripts/cobbler/ifcfg-mx
+echo "ONBOOT=yes" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx
+echo "NM_CONTROLLED=no" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx
+if [ -f "/etc/modprobe.conf" ]; then
+    echo "alias mx bonding" >> /etc/modprobe.conf.cobbler
+fi
+cat >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx << EOF
+BONDING_OPTS="mode=balance-xor miimon=50 xmit_hash_policy=1 updelay=0 downdelay=0"
+EOF
+echo "TYPE=Ethernet" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx
+echo "BOOTPROTO=none" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx
+echo "IPADDR=7.7.7.15" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx
+echo "NETMASK=255.255.255.0" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx
+echo "MTU=1500" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx
+echo "DNS1=172.29.74.154" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-mx
+# End configuration for mx
+
+# Start configuration for eth1
+echo "DEVICE=eth1" > /etc/sysconfig/network-scripts/cobbler/ifcfg-eth1
+echo "ONBOOT=yes" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-eth1
+echo "NM_CONTROLLED=no" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-eth1
+echo "HWADDR=F8:72:EA:ED:C4:4F" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-eth1
+IFNAME=$(ip -o link | grep -i 'F8:72:EA:ED:C4:4F' | sed -e 's/^[0-9]*: //' -e 's/:.*//')
+if [ -f "/etc/modprobe.conf" ] && [ $IFNAME ]; then
+    grep $IFNAME /etc/modprobe.conf | sed "s/$IFNAME/eth1/" >> /etc/modprobe.conf.cobbler
+    grep -v $IFNAME /etc/modprobe.conf >> /etc/modprobe.conf.new
+    rm -f /etc/modprobe.conf
+    mv /etc/modprobe.conf.new /etc/modprobe.conf
+fi
+if [ $IFNAME ] && [ -f "/etc/sysconfig/network-scripts/ifcfg-$IFNAME" ]; then
+    rm -f /etc/sysconfig/network-scripts/ifcfg-$IFNAME
+fi
+echo "SLAVE=yes" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-eth1
+echo "MASTER=bond_lacp" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-eth1
+echo "HOTPLUG=no" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-eth1
+echo "TYPE=Ethernet" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-eth1
+echo "BOOTPROTO=none" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-eth1
+echo "MTU=1500" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-eth1
+# End configuration for eth1
+
+# Start configuration for t
+echo "DEVICE=t" > /etc/sysconfig/network-scripts/cobbler/ifcfg-t
+echo "ONBOOT=yes" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t
+echo "NM_CONTROLLED=no" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t
+if [ -f "/etc/modprobe.conf" ]; then
+    echo "alias t bonding" >> /etc/modprobe.conf.cobbler
+fi
+cat >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t << EOF
+BONDING_OPTS="mode=balance-xor miimon=50 xmit_hash_policy=1 updelay=0 downdelay=0"
+EOF
+echo "TYPE=Ethernet" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t
+echo "BOOTPROTO=none" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t
+echo "IPADDR=9.9.9.30" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t
+echo "NETMASK=255.255.255.0" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t
+echo "MTU=1500" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t
+echo "DNS1=172.29.74.154" >> /etc/sysconfig/network-scripts/cobbler/ifcfg-t
+# End configuration for t
+
+sed -i -e "/^nameserver /d" /etc/resolv.conf
+echo "nameserver 172.29.74.154" >>/etc/resolv.conf
+
+sed -i 's/ONBOOT=yes/ONBOOT=no/g' /etc/sysconfig/network-scripts/ifcfg-eth*
+
+rm -f /etc/sysconfig/network-scripts/ifcfg-eth0
+rm -f /etc/sysconfig/network-scripts/ifcfg-p0
+rm -f /etc/sysconfig/network-scripts/ifcfg-p1
+rm -f /etc/sysconfig/network-scripts/ifcfg-t0
+rm -f /etc/sysconfig/network-scripts/ifcfg-t1
+rm -f /etc/sysconfig/network-scripts/ifcfg-p
+rm -f /etc/sysconfig/network-scripts/ifcfg-mx0
+rm -f /etc/sysconfig/network-scripts/ifcfg-bond_lacp
+rm -f /etc/sysconfig/network-scripts/ifcfg-mx1
+rm -f /etc/sysconfig/network-scripts/ifcfg-mx
+rm -f /etc/sysconfig/network-scripts/ifcfg-eth1
+rm -f /etc/sysconfig/network-scripts/ifcfg-t
+mv /etc/sysconfig/network-scripts/cobbler/* /etc/sysconfig/network-scripts/
+rm -r /etc/sysconfig/network-scripts/cobbler
+if [ -f "/etc/modprobe.conf" ]; then
+cat /etc/modprobe.conf.cobbler >> /etc/modprobe.conf
+rm -f /etc/modprobe.conf.cobbler
+fi
+configdir=/etc/sysconfig/network-scripts
+for file in $(grep -l "BONDING_OPTS" ${configdir}/ifcfg-*); do
+    sed -i 's/xmit_hash_policy=1/xmit_hash_policy=layer3+4/' ${file}
+    master=$(awk -F '=' '/DEVICE=.*/ {print $NF}' ${file})
+    bond2team --configdir ${configdir} --outputdir ${configdir} --master ${master}
+done
+# End post_install_network_config generated code
+
+
+
+
+# Start download cobbler managed config files (if applicable)
+# End download cobbler managed config files (if applicable)
+
+# Start koan environment setup
+echo "export COBBLER_SERVER=15.0.0.1" > /etc/profile.d/cobbler.sh
+echo "setenv COBBLER_SERVER 15.0.0.1" > /etc/profile.d/cobbler.csh
+# End koan environment setup
+
+# begin Red Hat management server registration
+# not configured to register to any Red Hat management server (ok)
+# end Red Hat management server registration
+
+# Begin cobbler registration
+# skipping for system-based installation
+# End cobbler registration
+
+# Reserve OpenStack ports if control node
+
+# Enable post-install boot notification
+
+#Install authorized_keys file
+mkdir -p /root/.ssh
+chmod 700 /root/.ssh
+
+curl "http://15.0.0.1/keys/authorized_keys" -o /root/.ssh/authorized_keys
+if [ $? != 0 ]; then
+
+curl "http://15.0.0.1/keys/authorized_keys" -o /root/.ssh/authorized_keys
+fi
+if [ $? != 0 ]; then
+
+curl "http://15.0.0.1/keys/authorized_keys" -o /root/.ssh/authorized_keys
+fi
+
+#Update Kernel Args
+#Set storage schedular to CFQ
+grubby --update-kernel=ALL --args="elevator=cfq"
+
+#Remove graphical boot screen
+grubby --update-kernel=ALL --remove-args="rhgb"
+grubby --update-kernel=ALL --remove-args="quit"
+
+
+#Set RAID rebuild thresholds if using software
+#Persist software RAID resync thresholds
+
+# Will resync at 8MB/s when there's something going on
+# That's a 36 hour/TB resync
+# Likely disk speeds for spinning disks are ~80MB/s so this
+# ensures we have some write bandwidth left over
+
+# Will go for broke at 200MB/s when there's nothing happening
+# (not tested, but idea is to keep CPU under control)
+
+if ls /dev/md* 2> /dev/null; then
+    cat > /etc/sysctl.d/10-RAID-Thresholds.conf << SYSCTL
+dev.raid.speed_limit_min = 8000
+dev.raid.speed_limit_max = 200000
+SYSCTL
+fi
+
+# Various ssh config changes
+# DE1991
+sed -i '/^# Ciphers/aCiphers aes128-ctr,aes192-ctr,aes256-ctr' /etc/ssh/sshd_config
+# DE2151
+sed -i 's/^#UseDNS.*/UseDNS no/' /etc/ssh/sshd_config
+# SSHv2 only
+sed -i 's/^#Protocol.*/Protocol 2/' /etc/ssh/sshd_config
+# ensure access logging
+sed -i 's/^#LogLevel.*/LogLevel INFO/' /etc/ssh/sshd_config
+# disable X11 forwarding
+sed -i 's/^X11Forwarding.*/X11Forwarding no/' /etc/ssh/sshd_config
+# set MaxAuthTries
+sed -i 's/^#MaxAuthTries.*/MaxAuthTries 4/' /etc/ssh/sshd_config
+# set IgnoreRhosts
+sed -i 's/^#IgnoreRhosts.*/IgnoreRhosts yes/' /etc/ssh/sshd_config
+# disable HostbasedAuth
+sed -i 's/^#HostbasedAuthentication.*/HostbasedAuthentication no/' /etc/ssh/sshd_config
+# prevent empty passwords
+sed -i 's/^#PermitEmptyPasswords.*/PermitEmptyPasswords no/' /etc/ssh/sshd_config
+# prevent user environment variables
+sed -i 's/^#PermitUserEnvironment.*/PermitUserEnvironment no/' /etc/ssh/sshd_config
+# only strong MACs
+echo 'MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512,hmac-sha2-256,umac-128@openssh.com' >> /etc/ssh/sshd_config
+# set grace time
+sed -i 's/^#LoginGraceTime.*/LoginGraceTime 60/' /etc/ssh/sshd_config
+# DE2736 enforce idle timeout
+cat <<EOF > /etc/profile.d/autologout.sh
+export TMOUT=3600
+readonly TMOUT
+EOF
+echo "set -r autologout 60" > /etc/profile.d/autologout.csh
+
+sed -i "s/^#CPUAffinity=.*/CPUAffinity=0 8 16 24/" /etc/systemd/system.conf
+systemctl enable mcelog
+chkconfig rhnsd off
+
+vm_hp_size=2M
+hp_perc=0
+res_hp_2m=0
+res_hp_1g=0
+res_sys_mem=25600
+
+%end
+
