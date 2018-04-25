@@ -1,3 +1,0 @@
-id: coreos-ignition-cluster
-workflow:
-  - boot: coreos-ignition-cluster

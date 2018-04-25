@@ -1,3 +1,0 @@
-id: coreos-ignition-proxy
-workflow:
-  - boot: coreos-ignition-proxy

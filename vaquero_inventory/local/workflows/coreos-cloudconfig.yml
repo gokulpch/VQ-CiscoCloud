@@ -1,3 +1,0 @@
-id: coreos-cloudconfig
-workflow:
-  - boot: coreos-cloudconfig
