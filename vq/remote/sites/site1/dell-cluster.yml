@@ -1,0 +1,63 @@
+---
+config:
+  type: git
+  url: "https://github.com/mattdietz/vaquero-sot"
+  ref: "master"
+  token: "79c52be0408ebff7fb31d1ca94d88637dc5c4672"
+
+---
+name: dell-node0
+interfaces:
+  - type: physical
+    subnet: harmony-mgmt
+    mac: 24:6E:96:3B:A1:38
+    ipv4: 172.29.87.73
+  - type: bmc
+    subnet: harmony-mgmt
+    mac: 84:7B:EB:D8:E7:90
+    ipv4: 10.18.183.94
+    bmc:
+      type: ipmi
+      username: root
+      password: cisco123!
+metadata:
+  name: dell-node0
+  ip: 172.29.87.73
+  bootif: enp9s0
+  ksnetworks:
+    - network --bootproto=static --device=enp9s0 --ipv6=auto --ip=172.29.87.73 --gateway=172.29.87.65 --netmask=255.255.255.240 --nameserver=10.18.183.40,10.18.183.41 --activate
+  disks:
+    drive_list: sda
+    boot_drive: sda
+    vg_name: dell--node0
+
+workflow: centos
+
+---
+name: dell-node1
+interfaces:
+  - type: physical
+    subnet: harmony-mgmt
+    mac: 24:6E:96:3B:A0:F2
+    ipv4: 172.29.87.74
+  - type: bmc
+    subnet: harmony-mgmt
+    mac: 84:7B:EB:D8:EE:B8
+    ipv4: 10.18.183.95
+    bmc:
+      type: ipmi
+      username: root
+      password: cisco123!
+metadata:
+  name: dell-node1
+  ip: 172.29.87.67
+  bootif: enp9s0
+  ksnetworks:
+    - network --bootproto=static --device=enp9s0 --ipv6=auto --ip=172.29.87.74 --gateway=172.29.87.65 --netmask=255.255.255.240 --nameserver=10.18.183.40,10.18.183.41 --activate
+  disks:
+    drive_list: sda
+    boot_drive: sda
+    vg_name: dell--node1
+
+workflow: centos
+

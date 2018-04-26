@@ -1,0 +1,55 @@
+---
+version: '2'
+#volumes:
+#  etcd0
+
+services:
+#  etcd0:
+#    image: quay.io/coreos/etcd
+#    ports:
+#      - 2379
+#    volumes:
+#      - etcd0:/etcd_data
+#    environment:
+#      - ETCDCTL_API=3
+#      - ETCD_NAME=etcd0
+#      - ETCD_DATA_DIR=/etcd-data
+#      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+#      - ETCD_ADVERTISE_CLIENT_URLS=http://0.0.0.0:2379
+#    network_mode: "host"
+#    privileged: true
+  server:
+    image: thecsikos/vaquero
+    network_mode: "host"
+    privileged: true
+    environment:
+      - VAQUERO_SHARED_SECRET=<secret>
+      - VAQUERO_SERVER_SECRET=<secret>
+    volumes:
+      - ${VQCONF}:/vaquero/config.yaml
+      - /root/vq/files:/var/vaquero/files
+      - /root/vq/pxeroms:/var/vaquero/pxeroms
+      - /root/vq/${LOCATION}:/vaquero/${LOCATION}
+      - /root/vq/secret:/vaquero/secret
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/vq/local-config:/var/vaquero/local-config
+    command: server --config /vaquero/config.yaml --log-level debug 
+  agent:
+    image: thecsikos/vaquero
+    network_mode: "host"
+    privileged: true
+    environment:
+      - VAQUERO_SHARED_SECRET=<secret>
+      - VAQUERO_SERVER_SECRET=<secret>
+      - VAQUERO_SITE_ID=site1
+      - VAQUERO_AGENT_ID=agent0
+    volumes:
+      - ${VQCONF}:/vaquero/config.yaml
+      - /root/vq/files:/var/vaquero/files
+      - /root/vq/pxeroms:/var/vaquero/pxeroms
+      - /root/vq/${LOCATION}:/vaquero/${LOCATION}
+      - /root/vq/secret:/vaquero/secret
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/vq/local-config:/var/vaquero/local-config
+    command: agent --config /vaquero/config.yaml --log-level debug
+

@@ -1,0 +1,27 @@
+name: g1-node0
+interfaces:
+  - type: physical
+    subnet: harmony-mgmt
+    mac: A8:9D:21:92:A0:0E
+    ipv4: 172.29.87.71
+  - type: bmc
+    subnet: harmony-mgmt
+    mac: F4:CF:E2:10:FD:CA
+    ipv4: 10.18.183.184
+    bmc:
+      type: ipmi
+      username: admin
+      password: 'cisco123!'
+metadata:
+  name: g1-node0
+  ip: 172.29.87.71
+  bootif: enp9s0
+  ksnetworks:
+    - network --bootproto=static --device=enp9s0 --ipv6=auto --ip=172.29.87.71 --gateway=172.29.87.65 --netmask=255.255.255.240 --nameserver=10.18.183.40,10.18.183.41 --activate
+  disks:
+    drive_list: sda
+    boot_drive: sda
+    vg_name: g1--node0
+
+workflow: centos
+#never_provision: true

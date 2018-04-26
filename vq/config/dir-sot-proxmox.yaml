@@ -1,0 +1,26 @@
+---
+ServerAPI:
+  Addr: 10.10.20.110
+  Port: 24601
+  PrivateKey: "/vaquero/secret/server.key"
+  PublicKey: "/vaquero/secret/server.pem"
+ServerClient:
+  Addr: 10.10.20.110
+  Port: 24601
+  InsecureSkipVerify: true
+SavePath: "/var/vaquero"
+LocalDir:
+  PollInterval: 1
+# Etcd:
+#   Endpoints:
+#   - "http://127.0.0.1:2379"
+#   Timeout: 5
+#   Retry: 3
+SoT:
+- Local:
+    ID: vaquero-local
+    Root: /vaquero/local
+Log:
+  Level: debug
+  Location: stdout
+  Type: text

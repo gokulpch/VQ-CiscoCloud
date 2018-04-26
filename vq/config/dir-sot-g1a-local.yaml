@@ -1,0 +1,21 @@
+---
+ServerAPI:
+  Addr: 172.29.87.69
+  Port: 24601
+  PrivateKey: "/vaquero/secret/server.key"
+  PublicKey: "/vaquero/secret/server.pem"
+ServerClient:
+  Addr: 172.29.87.69
+  Port: 24601
+  InsecureSkipVerify: true
+SavePath: "/var/vaquero"
+LocalDir:
+  PollInterval: 1
+SoT:
+- Local:
+    ID: vaquero-local
+    Root: /vaquero/local
+Log:
+  Level: debug
+  Location: stdout
+  Type: text

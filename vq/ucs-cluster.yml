@@ -1,0 +1,84 @@
+---
+name: ucs-node0
+interfaces:
+  - type: physical
+    subnet: harmony-mgmt
+    mac: A8:9D:21:92:A0:0E
+    ipv4: 172.29.87.70
+  - type: bmc
+    subnet: harmony-mgmt
+    mac: F4:CF:E2:10:FD:CA
+    ipv4: 10.18.183.184
+    bmc:
+      type: ipmi
+      username: admin
+      password: 'cisco123!'
+metadata:
+  name: ucs-node0
+  ip: 172.29.87.70
+  bootif: enp9s0
+  ksnetworks:
+    - network --bootproto=static --device=enp9s0 --ipv6=auto --ip=172.29.87.70 --gateway=172.29.87.65 --netmask=255.255.255.240 --nameserver=10.18.183.40,10.18.183.41 --activate
+  disks:
+    drive_list: sda
+    boot_drive: sda
+    vg_name: ucs--node0
+
+workflow: centos
+
+---
+name: ucs-node1
+interfaces:
+  - type: physical
+    subnet: harmony-mgmt
+    mac: 84:B8:02:2A:F4:04
+    ipv4: 172.29.87.71
+  - type: bmc
+    subnet: harmony-mgmt
+    mac: A8:9D:21:28:BB:58
+    ipv4: 10.18.183.185
+    bmc:
+      type: ipmi
+      username: admin
+      password: 'cisco123!'
+metadata:
+  name: ucs-node1
+  ip: 172.29.87.71
+  bootif: enp9s0
+  ksnetworks:
+    - network --bootproto=static --device=enp9s0 --ipv6=auto --ip=172.29.87.71 --gateway=172.29.87.65 --netmask=255.255.255.240 --nameserver=10.18.183.40,10.18.183.41 --activate
+  disks:
+    drive_list: sda
+    boot_drive: sda
+    vg_name: ucs--node1
+
+workflow: centos
+
+---
+name: ucs-node2
+interfaces:
+  - type: physical
+    subnet: harmony-mgmt
+    mac: 80:E0:1D:9D:AE:DA
+    ipv4: 172.29.87.72
+  - type: bmc
+    subnet: harmony-mgmt
+    mac: 80:E0:1D:37:8C:46
+    ipv4: 10.18.183.186
+    bmc:
+      type: ipmi
+      username: admin
+      password: 'cisco123!'
+metadata:
+  name: ucs-node2
+  ip: 172.29.87.72
+  bootif: enp9s0
+  ksnetworks:
+    - network --bootproto=static --device=enp9s0 --ipv6=auto --ip=172.29.87.72 --gateway=172.29.87.65 --netmask=255.255.255.240 --nameserver=10.18.183.40,10.18.183.41 --activate
+  disks:
+    drive_list: sda
+    boot_drive: sda
+    vg_name: ucs--node2
+
+workflow: centos
+

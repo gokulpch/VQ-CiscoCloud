@@ -1,0 +1,32 @@
+---
+ServerAPI:
+  Addr: 172.29.87.69
+  Port: 24601
+  PrivateKey: "/vaquero/secret/server.key"
+  PublicKey: "/vaquero/secret/server.pem"
+ServerClient:
+  Addr: 172.29.87.69
+  Port: 24601
+  InsecureSkipVerify: true
+SavePath: "/var/vaquero"
+LocalDir:
+  PollInterval: 1
+Gitter:
+   Endpoint: "/postreceive"
+   Timeout: 5
+   Addr: 172.29.87.69
+   Port: 24603
+GitHook:
+   - ID: vaquero-git
+     Token: 91cdc9604bc445693d572d2e3450af6af854116d
+     URL: "https://cto-github.cisco.com/dancorra/vq-data"
+     Secret: foo
+SoT:
+- Git:
+    ID: vaquero-git
+    HookID: vaquero-git
+    Branch: local-config
+Log:
+  Level: debug
+  Location: stdout
+  Type: text
